@@ -1,101 +1,143 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { getWeather } from './utils/getWeather';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleSendMessage = async (event) => {
+    event.preventDefault();
+
+    if (!input.trim()) return;
+
+    const newMessages = [
+      ...messages,
+      { role: 'user', content: input },
+    ];
+    setMessages(newMessages);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/get-resp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: input }),
+      });
+
+      const data = await res.json();
+      console.log('Response:', data.response);
+
+      const responseMessage = data.response.choices[0].message;
+      const toolCalls = responseMessage.tool_calls;
+
+      if (toolCalls) {
+        const availableFunctions = {
+          "getWeather": async (args) => {
+            const { location } = JSON.parse(args);
+            const weatherData = await getWeather(location);
+            return weatherData.error
+              ? weatherData.error
+              : `The weather in ${weatherData.location} is ${weatherData.temperature}°C with ${weatherData.description}.`;
+          },
+        };
+
+        const updatedMessages = [...newMessages, responseMessage];
+
+        for (const toolCall of toolCalls) {
+          const functionName = toolCall.function.name;
+          const functionToCall = availableFunctions[functionName];
+          const functionArgs = toolCall.function.arguments;
+
+          if (functionToCall) {
+            const functionResponse = await functionToCall(functionArgs);
+
+            updatedMessages.push({
+              tool_call_id: toolCall.id,
+              role: 'tool',
+              name: functionName,
+              content: functionResponse,
+            });
+          }
+        }
+
+        setMessages(updatedMessages);
+      } else {
+        setMessages([...newMessages, responseMessage]);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      setMessages([
+        ...newMessages,
+        { role: 'bot', content: 'Something went wrong. Please try again.' },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
+      <div className="w-full max-w-2xl bg-white rounded-lg shadow-lg p-6 space-y-4 min-h-[550px] h-full flex flex-col">
+        <h1 className="text-2xl font-bold text-center mb-4">Groq Chatbot</h1>
+
+        <div className="flex-grow overflow-y-auto space-y-4 p-4 border rounded bg-gray-50">
+          {messages.map((message, index) => (
+            <div
+              key={index}
+              className={`flex ${
+                message.role === 'user' ? 'justify-end' : 'justify-start'
+              }`}
+            >
+              <div
+                className={`${
+                  message.role === 'user' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-800'
+                } p-3 rounded-lg max-w-xs`}
+              >
+                {message.content}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-gray-200 text-gray-800 p-3 rounded-lg max-w-xs">
+                Typing...
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+
+        <div className="flex items-center space-x-4 mt-4">
+          <input
+            type="text"
+            className="flex-grow p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+            placeholder="Type your message..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSendMessage(e);
+            }}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <button
+            onClick={handleSendMessage}
+            className="bg-green-500 text-white p-2 rounded hover:bg-green-700 transition-colors"
+            disabled={loading}
+          >
+            Send
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
